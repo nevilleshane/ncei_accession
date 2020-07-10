@@ -1,0 +1,6 @@
+Dockerfile
+.dockerignore
+.git
+.gitignore
+config.json
+config_template.json
