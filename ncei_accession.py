@@ -1,8 +1,8 @@
 """
 Description:
 -------------
-Python application to read the text from an NCEI Silver Springs email and extract the 
-file set urls and acession date.  These are then used to generate and execute SQL to 
+Python application to read the text from an NCEI Silver Springs email, or NCEI Boulder Excel file,
+and extract the file set urls and acession date.  These are then used to generate and execute SQL to 
 update the fileset table in the database.
 
 Requirements:
@@ -18,6 +18,7 @@ To Run:
 Then paste the whole of the text of the "NCEI receipt confirmation and publication" email in
 to the top text box, including the line with the date at the top.  If no date is included, the 
 application will use today's date.
+Alternatively, upload the Boulder Excel .xslx file.
 Click Generate SQL.  This will generate the SQL commands to update the fileset table in the database.
 Check the SQL looks correct.
 Click Execute SQL.
@@ -30,11 +31,14 @@ Neville Shane, Lamont Doherty Earth Observatory, Columbia University (ns3131@col
 
 import tkinter as tk
 from tkinter import messagebox
+from tkinter.filedialog import askopenfilename
+from tkinter.messagebox import showerror
 from datetime import datetime
 import re
 import psycopg2
 import psycopg2.extras
 import json
+import pandas as pd
 
 config = json.loads(open('config.json', 'r').read())
 
@@ -100,6 +104,7 @@ def generate_sql():
 
     show_sql(sql)
 
+
 def run_sql():
     try:
         sql = sql_text.get("1.0", "end-1c")
@@ -109,17 +114,53 @@ def run_sql():
     except Exception as e:
         messagebox.showerror("Error", "Error updating database: \n%s" % str(e))
 
+
+def load_excel_file():
+    fname = askopenfilename(title = "Select file",filetypes = (("Excel files","*.xlsx"),("all files","*.*")))
+    if fname:
+        sql = ""
+        sql_text.delete("1.0","end-1c")
+        try:
+            data = pd.read_excel(fname)
+            df = pd.DataFrame(data, columns = ['Package Date', 'Package', 'Landing page'])
+            for index, line in df.iterrows():
+                try:
+                    accession_date = line['Package Date'].strftime('%Y-%m-%d')
+                except:
+                    sql += "-- NO DATE FOUND IN EMAIL - USING TODAY'S DATE FOR accession_date\n"
+                    accession_date = datetime.now().strftime('%Y-%m-%d')
+                
+                try:
+                    fileset_id = line['Package'].split('_')[1]
+                except:
+                    sql += "-- WARNING: UNABLE TO EXTRACT FILESET ID FROM PACKAGE %s\n" % line['Package']
+                    continue
+
+                url = line['Landing page']
+
+                if int(fileset_id) < 600000:
+                    if 'http' in str(url):
+                        sql += "UPDATE fileset SET url = '%s', accession_date = '%s' WHERE id = %s;\n" % (url, accession_date, fileset_id)
+                    else:
+                        sql += "-- WARNING: NO VALID URL FOUND FOR FILESET %s\n" % fileset_id 
+            sql += "COMMIT;"
+        except Exception as e:                    
+            sql += "-- ERROR: Unable to read urls from Excel file %s." % fname
+            messagebox.showerror("Error", "Error updating database: \n%s" % str(e))
+        show_sql(sql)
          
 
 master = tk.Tk()
 master.title("NCEI Email Ingestor")
-tk.Label(master, text="Paste email text:").pack()
+tk.Label(master, text="Paste Silver Spring email text:").pack()
 
 # e1 = tk.Entry(master).pack()
 email_text = tk.Text(master, width = 160, height = 25, padx=5, pady=5,  borderwidth=2, relief="groove")
 email_text.pack(padx=5)
 
 tk.Button(master, text='Generate SQL', command=generate_sql).pack(padx=5)
+
+tk.Button(master, text='Or Generate SQL from Boulder Excel file', command=load_excel_file).pack(padx=5)
 
 tk.Label(master, text="SQL:").pack()
 sql_text = tk.Text(master, width = 160, height = 10, padx=5, pady=5,  borderwidth=2, relief="groove")
