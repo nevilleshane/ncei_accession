@@ -19,6 +19,7 @@ Then paste the whole of the text of the "NCEI receipt confirmation and publicati
 to the top text box, including the line with the date at the top.  If no date is included, the 
 application will use today's date.
 Alternatively, upload the Boulder Excel .xslx file.
+As a third option, you can read archive dates from the NCEI Boulder website https://www.ngdc.noaa.gov/mgg/json/
 Click Generate SQL.  This will generate the SQL commands to update the fileset table in the database.
 Check the SQL looks correct.
 Click Execute SQL.
@@ -39,8 +40,11 @@ import psycopg2
 import psycopg2.extras
 import json
 import pandas as pd
+import requests
 
 config = json.loads(open('config.json', 'r').read())
+json_base_url = 'https://www.ngdc.noaa.gov/mgg/json/'
+json_files = ['mb-archive.json', 'wcsd-archive.json', 'trackline_survey_table.json']
 
 def connect_to_db():
     info = config['DATABASE']
@@ -148,7 +152,77 @@ def load_excel_file():
             sql += "-- ERROR: Unable to read urls from Excel file %s." % fname
             messagebox.showerror("Error", "Error updating database: \n%s" % str(e))
         show_sql(sql)
-         
+
+
+def read_website():
+
+    data_device_map = {'SB': "'singlebeam'", 'G': "'gravimeter'", 'B': "'bathymetry'", 'MB': "'multibeam'"}
+    conn, cur = connect_to_db()
+    sql = ""
+    for json_file in json_files:
+        url = json_base_url + json_file
+        r = requests.get(url)
+        if r.status_code == 200: 
+            sql += '-- READING FROM %s\n' % json_file          
+            data = r.json()['data']
+            for entry in data:
+                if entry['Source'] == 'Rolling Deck to Repository':
+
+                    if json_file == 'trackline_survey_table.json':
+                        data_types = entry['Data Type'].split(',')
+                        device_types = ','.join(data_device_map[d] for d in data_types)
+                        query = """SELECT fileset_id, accession_date FROM fileset_service_view_v2 fsv
+                                   JOIN fileset f ON f.id = fsv.fileset_id
+                                   WHERE fsv.cruise_id='%s' AND device_type in (%s);""" % (entry['Survey'], device_types)
+                        cur.execute(query)
+                        res = cur.fetchall()
+
+                        if len(res) == 0 and entry['Survey'] != 'EW0001':
+                            sql += '-- WARNING: NO FILE SETS FOUND FOR %s, DEVICE TYPES %s\n' % (entry['Survey'], device_types)
+                            print('WARNING: NO FILE SETS FOUND FOR %s, DEVICE TYPES %s\n' % (entry['Survey'], device_types))
+                        else:
+                            for r in res:
+                                old_acc_date = r['accession_date']
+                                new_acc_date = datetime.strptime(entry['Archived'], '%Y-%m-%d').date()
+                                if (not old_acc_date or new_acc_date > old_acc_date):
+                                    fileset_id = r['fileset_id']
+                                    sql += "UPDATE fileset SET accession_date = '%s' WHERE id = %s;\n" % (entry['Archived'], fileset_id)
+
+                    else:
+                        instruments = re.split('; |, ', entry['Instrument'])
+                        for instrument in instruments:
+                            instrument = instrument.replace(' 710', ' EM710')
+                            if instrument[0:2] in ['EM', 'EK']: 
+                                instrument = 'Kongsberg ' + instrument
+
+                            query = """SELECT fileset_id, accession_date, make_model_name FROM fileset_service_view_v2 fsv
+                                    JOIN fileset f ON f.id = fsv.fileset_id
+                                    WHERE fsv.cruise_id='%s' AND make_model_name ~* '%s';""" % (entry['Survey'], instrument)
+                            cur.execute(query)
+                            res = cur.fetchall()
+
+                            if len(res) > 1:
+                                for r in res:
+                                    if json_file == 'mb-archive.json' and r['make_model_name'] == instrument:
+                                        this_res = r
+                                    elif json_file == 'wcsd-archive.json' and r['make_model_name'] == (instrument + ' [water column]'):
+                                        this_res = r
+                                res = [this_res]
+
+                            if len(res) != 1:
+                                sql += '-- WARNING: NUMBER OF FILE SETS FOUND FOR %s %s = %s\n' % (entry['Survey'], instrument, len(res))
+                                # print('NUMBER OF FILE SETS FOUND FOR %s %s = %s' % (entry['Survey'], instrument, len(res)))
+                            else:
+                                old_acc_date = res[0]['accession_date']
+                                new_acc_date = datetime.strptime(entry['Archived'], '%Y-%m-%d').date()
+                                if (not old_acc_date or new_acc_date > old_acc_date):
+                                    fileset_id = res[0]['fileset_id']
+                                    sql += "UPDATE fileset SET url = '%s', accession_date = '%s' WHERE id = %s;\n" % (entry['Data Access'], entry['Archived'], fileset_id)
+                    
+        else:
+            sql += "-- ERROR: Unable to access URL %s." % url
+    show_sql(sql)
+
 
 master = tk.Tk()
 master.title("NCEI Email Ingestor")
@@ -158,9 +232,11 @@ tk.Label(master, text="Paste Silver Spring email text:").pack()
 email_text = tk.Text(master, width = 160, height = 25, padx=5, pady=5,  borderwidth=2, relief="groove")
 email_text.pack(padx=5)
 
-tk.Button(master, text='Generate SQL', command=generate_sql).pack(padx=5)
+tk.Button(master, text='Generate SQL from email text', command=generate_sql).pack(padx=5)
 
 tk.Button(master, text='Or Generate SQL from Boulder Excel file', command=load_excel_file).pack(padx=5)
+
+tk.Button(master, text='Or Generate SQL from Boulder JSON website', command=read_website).pack(padx=5)
 
 tk.Label(master, text="SQL:").pack()
 sql_text = tk.Text(master, width = 160, height = 10, padx=5, pady=5,  borderwidth=2, relief="groove")
