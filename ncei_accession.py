@@ -91,6 +91,7 @@ def generate_sql():
 
     try:
         urls = re.findall('https://accession.nodc.noaa.gov/(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text)
+        urls += re.findall('https://www.ncei.noaa.gov/archive/accession/(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text)
         if len(urls) == 0:
             sql += "ERROR: No URLs found in email text.  Please ensure you paste entire email.\n"
         else:
