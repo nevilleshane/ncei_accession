@@ -102,6 +102,8 @@ def generate_sql():
                 fileset_id = ids.split('_')[1]
                 if int(fileset_id) < 600000:
                     sql += "UPDATE fileset SET url = '%s', accession_date = '%s' WHERE id = %s;\n" % (url, accession_date, fileset_id)
+                elif int(fileset_id) >= 600000 and int(fileset_id) < 6100000:
+                   sql += "UPDATE product_set SET url = '%s', submit_date = '%s' WHERE id = %s;\n" % (url, accession_date, fileset_id) 
             sql += "COMMIT;"
     except:
         sql += "ERROR: Unable to read urls from email text.  Please ensure you paste entire email.\n"
@@ -148,6 +150,12 @@ def load_excel_file():
                         sql += "UPDATE fileset SET url = '%s', accession_date = '%s' WHERE id = %s;\n" % (url, accession_date, fileset_id)
                     else:
                         sql += "-- WARNING: NO VALID URL FOUND FOR FILESET %s\n" % fileset_id 
+                elif int(fileset_id) >= 600000 and int(fileset_id) < 6100000:
+                    if 'http' in str(url):
+                        sql += "UPDATE product_set SET url = '%s', submit_date = '%s' WHERE id = %s;\n" % (url, accession_date, fileset_id) 
+                    else:
+                        sql += "-- WARNING: NO VALID URL FOUND FOR PRODUCT SET %s\n" % fileset_id 
+
             sql += "COMMIT;"
         except Exception as e:                    
             sql += "-- ERROR: Unable to read urls from Excel file %s." % fname
