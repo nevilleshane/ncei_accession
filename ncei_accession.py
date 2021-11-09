@@ -230,6 +230,7 @@ def read_website():
                     
         else:
             sql += "-- ERROR: Unable to access URL %s." % url
+    sql += "COMMIT;"
     show_sql(sql)
 
 
