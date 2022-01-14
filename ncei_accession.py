@@ -175,7 +175,7 @@ def read_website():
             sql += '-- READING FROM %s\n' % json_file          
             data = r.json()['data']
             for entry in data:
-                if entry['Source'] == 'Rolling Deck to Repository':
+                if 'Rolling Deck to Repository' in entry['Source']:
 
                     if json_file == 'trackline_survey_table.json':
                         data_types = entry['Data Type'].split(',')
@@ -198,6 +198,10 @@ def read_website():
                                     sql += "UPDATE fileset SET accession_date = '%s' WHERE id = %s;\n" % (entry['Archived'], fileset_id)
 
                     else:
+                        if not entry['Instrument']:
+                            sql += '-- WARNING: NO INSTRUMENT FOUND FOR %s\n' % (entry['Survey'])
+                            continue
+
                         instruments = re.split('; |, ', entry['Instrument'])
                         for instrument in instruments:
                             instrument = instrument.replace(' 710', ' EM710')
